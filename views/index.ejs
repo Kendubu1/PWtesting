@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Playwright Test UI</title>
+</head>
+<body>
+    <form action="/run-test" method="post" enctype="multipart/form-data">
+        <label for="url">Enter URL:</label>
+        <input type="url" name="url">
+        <br>
+        <label for="csv">Or upload a CSV of URLs:</label>
+        <input type="file" name="csv">
+        <br>
+        <button type="submit">Run Test</button>
+    </form>
+    
+    <% if (result) { %>
+        <pre><%= result %></pre>
+    <% } %>
+    
+</body>
+</html>
