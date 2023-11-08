@@ -69,7 +69,7 @@ function extractActivityNames(input) {
 
 
 // Function to save data to a file
-function saveToFileSync(filename, data) {
+function saveToFileSync(logdir,filename, data) {
     try {
         fs.writeFileSync(filename, data);
         console.log(`Data was saved to ${filename}`);
