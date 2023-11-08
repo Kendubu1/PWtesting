@@ -5,8 +5,10 @@ const fs = require('fs');
 
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 8080;
 const upload = multer({ dest: 'uploads/' }); // setting the directory for the uploaded files
+const logdir = multer({ dest: 'applogs/' }); // setting the directory for the uploaded files
+
 
 app.set('view engine', 'ejs');
 app.use(express.urlencoded({ extended: true }));
@@ -19,14 +21,6 @@ app.post('/run-test', upload.single('csv'), async (req, res) => {
     const url = req.body.url;
     const file = req.file;
 
-    function isValidUrl(string) {
-        try {
-            new URL(string);
-            return true;
-        } catch (_) {
-            return false;
-        }
-    }    
 
     if (file) {
         // handle CSV file upload, parse and execute tests for each URL
@@ -51,7 +45,41 @@ app.post('/run-test', upload.single('csv'), async (req, res) => {
     }
 });
 
-const runPlaywrightTest = async (url) => {
+
+function isValidUrl(string) {
+    try {
+        new URL(string);
+        return true;
+    } catch (_) {
+        return false;
+    }
+}    
+
+function extractActivityNames(input) {
+    const regex = /"activity\.name":"(.*?)"/g;
+    let match;
+    const results = [];
+
+    while ((match = regex.exec(input)) !== null) {
+        results.push(match[1]);
+    }
+
+    return results;
+}
+
+
+// Function to save data to a file
+function saveToFileSync(filename, data) {
+    try {
+        fs.writeFileSync(filename, data);
+        console.log(`Data was saved to ${filename}`);
+    } catch (err) {
+        console.error('An error occurred while writing to the file:', err);
+    }
+}
+
+
+const runPlaywrightTest = async (initialUrl) => {
 
     try {
     const browser = await playwright.chromium.launch();
@@ -60,32 +88,69 @@ const runPlaywrightTest = async (url) => {
 
     // 1. Measure Page Load Time
     const startLoadTime = new Date();
-    await page.goto(url);  // Make sure to use the provided URL here!
+
+
+    console.log("URL before calling goto:", initialUrl);
+    if (!initialUrl) {
+        console.error("URL is empty or not defined!");
+        return;
+    }
+    await page.goto(initialUrl);
+    const finalUrl = page.url();
+    console.log("URL after calling goto:", finalUrl);
+
+    //await page.goto(initialUrl, { waitUntil: 'domcontentloaded' });
+    //await page.goto(url);  // Make sure to use the provided URL here!
+    //await page.waitForSelector('script, link', { visible: false});
+
     const endLoadTime = new Date();
     const loadTime = endLoadTime - startLoadTime;
 
+    // Extract activity names
+    const pageContent = await page.content();
+    console.log(pageContent);
+    const activityNames = extractActivityNames(pageContent);
+    saveToFileSync('activityNames.txt', activityNames);
+
     // 2. Check Image URLs and their status codes
+    console.log("Check Image URLs and their status codes");
+
     const imageUrls = await page.$$eval('img', images => images.map(img => img.src));
 
     const imageStatuses = [];
     for (const imageUrl of imageUrls) {
-        const response = await page.goto(imageUrl);
-        if (response) {
-            imageStatuses.push({
-                imageUrl: imageUrl,
-                statusCode: response.status(),
-            });
+        // Skip empty image URLs
+        if (!imageUrl) {
+            continue; // Skip this iteration and move to the next URL
+        }
+    
+        if (isValidUrl(imageUrl)) {
+            try {
+                // "page.goto" should be replaced with a fetch request, as explained earlier.
+                const response = await page.goto(imageUrl, { waitUntil: 'load' });
+                imageStatuses.push({
+                    imageUrl: imageUrl,
+                    statusCode: response.status(),
+                });
+            } catch (error) {
+                imageStatuses.push({
+                    imageUrl: imageUrl,
+                    statusCode: "Error: " + error.message,
+                });
+            }
         } else {
             imageStatuses.push({
                 imageUrl: imageUrl,
-                statusCode: "Error: No Response",
+                statusCode: "Error: Invalid URL"
             });
         }
-        await page.goBack();  // Return to the main page
     }
+    
     
 
     // 3. Check for Broken Links
+    console.log("Check for Broken Links");
+
     const links = await page.$$eval('a', anchors => anchors.map(a => a.href));
 const brokenLinks = [];
 for (const link of links) {
@@ -107,9 +172,13 @@ for (const link of links) {
 }
 
     // 4. Count All Elements on the Page
+    console.log("Counting All Elements on the Page");
+
     const allElementsCount = await page.$$eval('*', elements => elements.length);
 
     // Pull elementsWithAttributes 
+    console.log("Pull elementsWithAttributes");
+
     const elementsWithAttributes = await page.evaluate(() => {
         return [...document.querySelectorAll('*')].map(el => {
             let attributes = {};
@@ -122,16 +191,21 @@ for (const link of links) {
             };
         });
     });
-    
+    console.log(elementsWithAttributes);
+
+    console.log("Organize Data into JSON");
 
     // Organize Data into JSON
     const resultJson = {
         loadTime: `${loadTime} ms`,
         allElementsCount: allElementsCount,
-        elementsWithAttributes: elementsWithAttributes,
         imageStatuses: imageStatuses,
-        brokenLinks: brokenLinks
+        brokenLinks: brokenLinks,
+        activityNames: activityNames,
+        elementsWithAttributes: elementsWithAttributes
+
     };
+    console.log("Closing Browser");
 
     await browser.close();
     console.log(resultJson);
